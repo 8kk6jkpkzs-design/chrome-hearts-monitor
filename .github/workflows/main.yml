@@ -1,109 +1,24 @@
-name: Chrome Hearts Night Monitor
+
+name: Chrome Hearts Monitor Test
 
 on:
   workflow_dispatch:
-    inputs:
-      mode:
-        description: "test (Discord only) or seed (initial product catalog)"
-        required: true
-        type: choice
-        options:
-          - test
-          - seed
   schedule:
-    # GitHub uses UTC: 16:58 UTC = 01:58 the next day in Japan.
     - cron: '58 16 * * *'
 
 permissions:
   contents: read
 
-concurrency:
-  group: chrome-hearts-night-monitor
-  cancel-in-progress: false
-
 jobs:
-  monitor:
-    # Scheduled website access is OFF until the repository owner explicitly
-    # sets the repository variable CH_MONITOR_ENABLED to true.
-    if: github.event_name == 'workflow_dispatch' || vars.CH_MONITOR_ENABLED == 'true'
+  test:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 155
-    env:
-      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-      NOTIFY_METHOD: discord
-      CH_STATE_FILE: seen_products.json
-      CH_POLL_SECONDS: '60'
-      CH_STARTUP_PING: '0'
-
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Restore saved product history
-        uses: actions/cache/restore@v4
-        with:
-          path: seen_products.json
-          key: chrome-hearts-state-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            chrome-hearts-state-
-      - name: Check notification URL
-        shell: bash
-        run: |
-          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
-            echo "Missing DISCORD_WEBHOOK_URL in repository secrets"
-            exit 1
-          fi
-      - name: Discord-only test
-        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'test'
-        shell: bash
+      - name: Test Discord
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
           curl --fail --silent --show-error \
-            -H 'Content-Type: application/json' \
-            -d '{"content":"GitHubã®ç£è¦è¨­å®ï¼Discordéç¥ã¯æ­£å¸¸ã§ãã"}' \
-            "$DISCORD_WEBHOOK_URL"
-      - name: Install Python requirements
-        if: github.event_name == 'schedule' || inputs.mode == 'seed'
-        run: python -m pip install -r requirements.txt
-      - name: Initial product snapshot (manual only)
-        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'seed'
-        run: python chrome_hearts_monitor.py --seed
-      - name: Monitor from 02:00 to 04:00 Japan time
-        if: github.event_name == 'schedule'
-        run: |
-          python - <<'PY'
-          from datetime import datetime
-          from zoneinfo import ZoneInfo
-          import subprocess
-          import time
-
-          tz = ZoneInfo('Asia/Tokyo')
-          now = datetime.now(tz)
-          start = now.replace(hour=2, minute=0, second=0, microsecond=0)
-          end = now.replace(hour=4, minute=0, second=0, microsecond=0)
-          if now >= end:
-              print('GitHub started after 04:00 JST; skipping today.')
-              raise SystemExit(0)
-          if now < start:
-              seconds = (start - now).total_seconds()
-              print(f'Waiting {seconds:.0f}s for 02:00 JST.', flush=True)
-              time.sleep(seconds)
-          remaining = (end - datetime.now(tz)).total_seconds()
-          if remaining <= 0:
-              print('The monitoring window has ended.')
-              raise SystemExit(0)
-          try:
-              subprocess.run(
-                  ['python', '-u', 'chrome_hearts_monitor.py', '--loop'],
-                  timeout=remaining,
-                  check=True,
-              )
-          except subprocess.TimeoutExpired:
-              print('04:00 JST reached; monitoring window ended.', flush=True)
-          PY
-      - name: Save product history for tomorrow
-        if: ${{ always() && hashFiles('seen_products.json') != '' }}
-        uses: actions/cache/save@v4
-        with:
-          path: seen_products.json
-          key: chrome-hearts-state-${{ github.run_id }}-${{ github.run_attempt }}
+            -H "Content-Type: application/json" \
+            -d '{"content":"Discord設定確認OK"}' \
+            "$WEBHOOK_URL"
