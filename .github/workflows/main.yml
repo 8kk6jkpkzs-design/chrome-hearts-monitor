@@ -1,24 +1,110 @@
 
-name: Chrome Hearts Monitor Test
+name: Chrome Hearts Night Monitor
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "Choose operation"
+        required: true
+        type: choice
+        options:
+          - test
+          - seed
+          - monitor
+        default: test
   schedule:
-    - cron: '58 16 * * *'
+    - cron: '0 17 * * *'
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: chrome-hearts-night
+  cancel-in-progress: false
 
 jobs:
-  test:
-    if: github.event_name == 'workflow_dispatch'
+  monitor:
     runs-on: ubuntu-latest
+    timeout-minutes: 135
+    env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      NOTIFY_METHOD: discord
+      CH_STATE_FILE: seen_products.json
+      CH_POLL_SECONDS: '60'
+      CH_STARTUP_PING: '0'
     steps:
+      - name: Download repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
       - name: Test Discord
-        env:
-          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        if: inputs.mode == 'test'
         run: |
           curl --fail --silent --show-error \
             -H "Content-Type: application/json" \
-            -d '{"content":"Discord設定確認OK"}' \
-            "$WEBHOOK_URL"
+            -d '{"content":"Chrome Hearts monitor test OK"}' \
+            "$DISCORD_WEBHOOK_URL"
+
+      - name: Initialize existing products
+        if: inputs.mode == 'seed'
+        run: python chrome_hearts_monitor.py --seed
+
+      - name: Save initial snapshot
+        if: inputs.mode == 'seed'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f seen_products.json
+          git commit -m "Save initial product snapshot"
+          git push
+
+      - name: Night monitoring
+        if: github.event_name == 'schedule' || inputs.mode == 'monitor'
+        shell: bash
+        run: |
+          if [ ! -s seen_products.json ]; then
+            echo "Missing initial snapshot. Run seed first."
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          while true; do
+            NOW=$(date -u +%H%M)
+
+            if [ "$NOW" -ge 1900 ]; then
+              echo "Monitoring window finished"
+              break
+            fi
+
+            if [ "$NOW" -lt 1700 ]; then
+              sleep 15
+              continue
+            fi
+
+            START=$(date +%s)
+
+            python chrome_hearts_monitor.py --once
+
+            git add -f seen_products.json
+            if ! git diff --cached --quiet; then
+              git commit -m "Update monitored products"
+              git push
+            fi
+
+            ELAPSED=$(( $(date +%s) - START ))
+            if [ "$ELAPSED" -lt 60 ]; then
+              sleep $((60 - ELAPSED))
+            fi
+          done
