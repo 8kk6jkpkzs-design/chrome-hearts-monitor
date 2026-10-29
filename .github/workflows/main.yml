@@ -1,0 +1,25 @@
+
+name: Discord Notification Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Discord test
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "$WEBHOOK_URL" ]; then
+            echo "Discord webhook secret is missing"
+            exit 1
+          fi
+          curl --fail --silent --show-error \
+            -H "Content-Type: application/json" \
+            -d '{"content":"GitHubからの通知テスト成功！"}' \
+            "$WEBHOOK_URL"
